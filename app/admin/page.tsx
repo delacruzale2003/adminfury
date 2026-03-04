@@ -11,7 +11,12 @@ import {
   ExternalLink, 
   Loader2, 
   AlertCircle,
-  Search 
+  Search,
+  Lock, 
+  User,
+  X, // Importamos el icono para cerrar el modal
+  ZoomIn, // Icono para indicar zoom
+  ZoomOut
 } from 'lucide-react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
@@ -30,6 +35,12 @@ const GIVEAWAY_SCHEDULE = [
 ]
 
 export default function AdminAlternativoPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [authChecking, setAuthChecking] = useState(true)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+
   const [campaign, setCampaign] = useState<any>(null)
   const [activeGiveaway, setActiveGiveaway] = useState(GIVEAWAY_SCHEDULE[0])
   const [registrations, setRegistrations] = useState<any[]>([])
@@ -38,7 +49,32 @@ export default function AdminAlternativoPage() {
   
   const [searchTerm, setSearchTerm] = useState('')
 
+  // --- ESTADOS PARA EL MODAL DEL VOUCHER ---
+  const [selectedVoucher, setSelectedVoucher] = useState<string | null>(null)
+  const [isZoomed, setIsZoomed] = useState(false)
+
   useEffect(() => {
+    const session = sessionStorage.getItem('admin_auth')
+    if (session === 'true') {
+      setIsAuthenticated(true)
+    }
+    setAuthChecking(false)
+  }, [])
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (username === 'adminEMPRESA' && password === 'EMPRESA$$2026') {
+      setIsAuthenticated(true)
+      sessionStorage.setItem('admin_auth', 'true')
+      setLoginError('')
+    } else {
+      setLoginError('Usuario o contraseña incorrectos')
+    }
+  }
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
     async function initCampaign() {
       const { data, error } = await supabase
         .from('campaigns')
@@ -54,14 +90,14 @@ export default function AdminAlternativoPage() {
       }
     }
     initCampaign()
-  }, [])
+  }, [isAuthenticated])
 
   useEffect(() => {
-    if (campaign?.id) {
+    if (campaign?.id && isAuthenticated) {
       setSearchTerm('')
       fetchRegistrations(campaign.id)
     }
-  }, [campaign, activeGiveaway])
+  }, [campaign, activeGiveaway, isAuthenticated])
 
   async function fetchRegistrations(id: string) {
     setLoading(true)
@@ -78,13 +114,11 @@ export default function AdminAlternativoPage() {
     setLoading(false)
   }
 
-  // --- LÓGICA DE FILTRADO ACTUALIZADA ---
   const filteredRegistrations = useMemo(() => {
     if (!searchTerm) return registrations;
 
     const term = searchTerm.toLowerCase();
     return registrations.filter(reg => {
-      // Ahora filtramos por phone en lugar de dni
       const phoneStr = reg.phone ? String(reg.phone).toLowerCase() : '';
       const emailStr = reg.email ? String(reg.email).toLowerCase() : '';
       
@@ -110,7 +144,6 @@ export default function AdminAlternativoPage() {
 
     const dataToExport = listToExport.map(reg => ({
       'Participante': reg.full_name,
-      'DNI': reg.dni,
       'Teléfono': reg.phone,
       'Email': reg.email,
       'Fecha de Registro': new Date(reg.created_at).toLocaleDateString('es-PE') + ' ' + new Date(reg.created_at).toLocaleTimeString('es-PE'),
@@ -125,9 +158,88 @@ export default function AdminAlternativoPage() {
     XLSX.writeFile(workbook, fileName);
   }
 
+  if (authChecking) {
+    return <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-950"><Loader2 className="animate-spin text-blue-600" /></div>
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 flex items-center justify-center p-4 font-sans">
+        <div className="w-full max-w-md bg-white dark:bg-zinc-900 rounded-[2rem] p-8 shadow-2xl border border-zinc-100 dark:border-zinc-800">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-3xl flex items-center justify-center mx-auto mb-4">
+              <Lock size={32} />
+            </div>
+            <h1 className="text-2xl font-black uppercase tracking-tighter text-zinc-900 dark:text-zinc-100">Acceso Privado</h1>
+            <p className="text-zinc-500 text-sm font-medium mt-1">Panel de control de sorteos</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-2">Usuario</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                  <User className="h-4 w-4 text-zinc-400" />
+                </div>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="w-full pl-11 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-zinc-900 dark:text-zinc-100"
+                  placeholder="Ingresa tu usuario"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[10px] font-black uppercase tracking-widest text-zinc-500 ml-2">Contraseña</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
+                  <Lock className="h-4 w-4 text-zinc-400" />
+                </div>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-11 pr-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all text-zinc-900 dark:text-zinc-100"
+                  placeholder="••••••••"
+                  required
+                />
+              </div>
+            </div>
+
+            {loginError && (
+              <div className="flex items-center gap-2 text-red-500 bg-red-50 dark:bg-red-950/30 p-3 rounded-xl text-xs font-bold">
+                <AlertCircle size={14} />
+                {loginError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="w-full mt-6 bg-blue-600 text-white py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-blue-700 transition-colors active:scale-[0.98]"
+            >
+              Iniciar Sesión
+            </button>
+          </form>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans p-4 md:p-8">
-      <div className="max-w-6xl mx-auto">
+      
+      {/* Estilos locales para el slider minimalista y zoom */}
+      <style jsx global>{`
+        .thin-scrollbar::-webkit-scrollbar { height: 3px; }
+        .thin-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .thin-scrollbar::-webkit-scrollbar-thumb { background: #e4e4e7; border-radius: 10px; }
+        .dark .thin-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; }
+      `}</style>
+
+      <div className="max-w-6xl mx-auto relative">
         
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
           <div className="space-y-1">
@@ -140,9 +252,21 @@ export default function AdminAlternativoPage() {
             <p className="text-zinc-500 text-sm font-medium">Gestión exclusiva para la campaña activa.</p>
           </div>
 
-          <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
-            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Campaña Activa</span>
+          <div className="flex flex-col md:flex-row items-center gap-4">
+            <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-sm">
+              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              <span className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Campaña Activa</span>
+            </div>
+            
+            <button 
+              onClick={() => {
+                sessionStorage.removeItem('admin_auth')
+                setIsAuthenticated(false)
+              }}
+              className="text-[10px] font-black uppercase tracking-widest text-zinc-400 hover:text-red-500 transition-colors"
+            >
+              Cerrar Sesión
+            </button>
           </div>
         </header>
 
@@ -154,20 +278,23 @@ export default function AdminAlternativoPage() {
         ) : campaign ? (
           <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             
-            <div className="flex gap-3 overflow-x-auto pb-4 custom-scrollbar">
-              {GIVEAWAY_SCHEDULE.map((g) => (
-                <button
-                  key={g.label}
-                  onClick={() => setActiveGiveaway(g)}
-                  className={`px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest whitespace-nowrap transition-all border ${
-                    activeGiveaway.label === g.label 
-                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20 scale-105' 
-                    : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-400 hover:border-zinc-300'
-                  }`}
-                >
-                  {g.label}
-                </button>
-              ))}
+            {/* --- SLIDER DE FECHAS ESTILIZADO --- */}
+            <div className="relative w-full">
+              <div className="flex gap-2 overflow-x-auto pb-4 pt-1 thin-scrollbar snap-x cursor-grab active:cursor-grabbing">
+                {GIVEAWAY_SCHEDULE.map((g) => (
+                  <button
+                    key={g.label}
+                    onClick={() => setActiveGiveaway(g)}
+                    className={`px-7 py-2.5 rounded-full text-[11px] font-black uppercase tracking-wider whitespace-nowrap transition-all duration-300 snap-start shrink-0 ${
+                      activeGiveaway.label === g.label 
+                      ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 shadow-lg scale-105' 
+                      : 'bg-zinc-200/50 dark:bg-zinc-800/50 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-300 border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700'
+                    }`}
+                  >
+                    {g.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -187,7 +314,7 @@ export default function AdminAlternativoPage() {
                   {winner ? (
                     <div className="animate-in zoom-in duration-500">
                       <p className="text-white dark:text-black text-3xl font-black uppercase tracking-tighter leading-none mb-2">{winner.full_name}</p>
-                      <p className="text-zinc-400 dark:text-zinc-500 font-bold text-sm tracking-widest">{winner.phone} • {winner.dni}</p>
+                      <p className="text-zinc-400 dark:text-zinc-500 font-bold text-sm tracking-widest">{winner.phone} </p>
                     </div>
                   ) : (
                     <p className="text-zinc-500 text-lg font-bold italic">¿Quién será el afortunado hoy?</p>
@@ -210,6 +337,19 @@ export default function AdminAlternativoPage() {
               </div>
             </div>
 
+            {/* --- DISCLAIMER --- */}
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-3xl p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 text-amber-800 dark:text-amber-200">
+              <div className="bg-amber-100 dark:bg-amber-900/50 p-3 rounded-2xl shrink-0">
+                <AlertCircle size={24} className="text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <h4 className="font-black uppercase tracking-widest text-[11px] opacity-80 mb-1">Pasos para validación</h4>
+                <p className="text-sm font-bold">
+                  Usar el buscador de participante. Verificar cantidad de registros y foto voucher para validar la participación del ganador.
+                </p>
+              </div>
+            </div>
+
             <div className="bg-white dark:bg-zinc-900 rounded-[3rem] border border-zinc-100 dark:border-zinc-800 shadow-sm overflow-hidden">
               <div className="px-8 py-6 border-b border-zinc-50 dark:border-zinc-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-zinc-50/50 dark:bg-zinc-800/20">
                 <h3 className="font-black uppercase tracking-tighter text-xl">Registros del Periodo</h3>
@@ -219,7 +359,6 @@ export default function AdminAlternativoPage() {
                     <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
                       <Search className="h-4 w-4 text-zinc-400" />
                     </div>
-                    {/* --- INPUT CORREGIDO --- */}
                     <input
                       type="text"
                       placeholder="Buscar por Teléfono o Email..."
@@ -232,7 +371,7 @@ export default function AdminAlternativoPage() {
                   <button 
                     onClick={exportToExcel}
                     disabled={filteredRegistrations.length === 0}
-                    className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-blue-600 hover:opacity-70 disabled:opacity-30 disabled:cursor-not-allowed transition-opacity whitespace-nowrap"
+                    className="flex items-center justify-center gap-2 text-xs font-black border-2 border-green-600 rounded-xl py-2 px-4 hover:bg-green-600 hover:text-white uppercase tracking-widest text-green-600 disabled:opacity-30 disabled:cursor-not-allowed transition-all whitespace-nowrap"
                   >
                     <Download size={16} /> Exportar
                   </button>
@@ -244,7 +383,6 @@ export default function AdminAlternativoPage() {
                   <thead>
                     <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 bg-zinc-50/50 dark:bg-zinc-800/50">
                       <th className="px-8 py-4">Participante</th>
-                      
                       <th className="px-8 py-4">Contacto</th>
                       <th className="px-8 py-4">Fecha</th>
                       <th className="px-8 py-4">Voucher</th>
@@ -253,13 +391,13 @@ export default function AdminAlternativoPage() {
                   <tbody className="divide-y divide-zinc-50 dark:divide-zinc-800">
                     {loading ? (
                       <tr>
-                        <td colSpan={5} className="py-20 text-center">
+                        <td colSpan={4} className="py-20 text-center">
                           <Loader2 className="animate-spin mx-auto text-zinc-300" size={40} />
                         </td>
                       </tr>
                     ) : filteredRegistrations.length === 0 ? ( 
                       <tr>
-                        <td colSpan={5} className="py-20 text-center space-y-4">
+                        <td colSpan={4} className="py-20 text-center space-y-4">
                           <AlertCircle size={48} className="mx-auto text-zinc-200" />
                           <p className="text-sm font-bold text-zinc-400 uppercase tracking-widest">
                             {searchTerm ? 'No se encontraron resultados para la búsqueda.' : 'No hay registros.'}
@@ -270,7 +408,6 @@ export default function AdminAlternativoPage() {
                       filteredRegistrations.map((reg) => (
                         <tr key={reg.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors group">
                           <td className="px-8 py-5 font-black text-sm uppercase">{reg.full_name}</td>
-                          
                           <td className="px-8 py-5">
                             <div className="flex flex-col">
                               <span className="text-sm font-bold">{reg.phone}</span>
@@ -280,15 +417,24 @@ export default function AdminAlternativoPage() {
                           <td className="px-8 py-5 text-xs font-bold text-zinc-400">
                             {new Date(reg.created_at).toLocaleDateString('es-PE')}
                           </td>
-                          <td className="px-8 py-5">
-                            <a 
-                              href={reg.voucher_url} 
-                              target="_blank" 
-                              className="bg-zinc-100 dark:bg-zinc-800 p-2.5 rounded-xl inline-flex items-center gap-2"
+                          {/* --- THUMBNAIL EN VEZ DEL BOTÓN 'VER' --- */}
+                          <td className="px-8 py-3">
+                            <button 
+                              onClick={() => {
+                                setSelectedVoucher(reg.voucher_url);
+                                setIsZoomed(false); // Resetear el zoom al abrir uno nuevo
+                              }}
+                              className="relative w-14 h-14 rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700 shadow-sm hover:ring-2 hover:ring-blue-500 transition-all group/thumb"
                             >
-                              <ExternalLink size={14} />
-                              <span className="text-[10px] font-black uppercase">Ver</span>
-                            </a>
+                              <img 
+                                src={reg.voucher_url} 
+                                alt="Miniatura de voucher" 
+                                className="w-full h-full object-cover"
+                              />
+                              <div className="absolute inset-0 bg-black/0 group-hover/thumb:bg-black/30 flex items-center justify-center transition-colors">
+                                <ZoomIn size={18} className="text-white opacity-0 group-hover/thumb:opacity-100 transition-opacity" />
+                              </div>
+                            </button>
                           </td>
                         </tr>
                       ))
@@ -306,6 +452,54 @@ export default function AdminAlternativoPage() {
           </div>
         )}
       </div>
+
+      {/* --- MODAL PARA VER/ZOOM EL VOUCHER --- */}
+      {selectedVoucher && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 overflow-hidden"
+          onClick={() => {
+            // Cerrar al dar clic en el fondo
+            setSelectedVoucher(null);
+            setIsZoomed(false);
+          }}
+        >
+          {/* Botón de cerrar */}
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedVoucher(null);
+              setIsZoomed(false);
+            }}
+            className="absolute top-4 right-4 md:top-8 md:right-8 p-3 bg-white/10 hover:bg-red-600 text-white rounded-full transition-colors z-[110]"
+          >
+            <X size={24} />
+          </button>
+
+          {/* Indicador superior de zoom */}
+          <div className="absolute top-6 left-6 md:top-8 md:left-8 flex items-center gap-2 text-white/50 text-[10px] font-black tracking-widest uppercase z-[110] pointer-events-none">
+            {isZoomed ? <ZoomOut size={16} /> : <ZoomIn size={16} />}
+            <span className="hidden sm:inline">Clic en la imagen para {isZoomed ? 'alejar' : 'acercar'}</span>
+          </div>
+
+          {/* Contenedor de la Imagen con lógica de Zoom */}
+          <div 
+            className={`relative transition-transform duration-300 ease-out cursor-pointer ${
+              isZoomed ? 'scale-150 md:scale-[2]' : 'scale-100 max-w-full max-h-full'
+            }`}
+            onClick={(e) => {
+              e.stopPropagation(); // Evita que se cierre el modal
+              setIsZoomed(!isZoomed); // Alterna el zoom
+            }}
+          >
+            <img 
+              src={selectedVoucher} 
+              alt="Voucher Ampliado" 
+              className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            />
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
