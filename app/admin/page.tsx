@@ -63,7 +63,7 @@ export default function AdminAlternativoPage() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault()
-    if (username === 'adminEMPRESA' && password === 'EMPRESA$$2026') {
+    if (username === 'adminFURY' && password === 'FURY$$2026') {
       setIsAuthenticated(true)
       sessionStorage.setItem('admin_auth', 'true')
       setLoginError('')
