@@ -14,9 +14,12 @@ import {
   Search,
   Lock, 
   User,
-  X, // Importamos el icono para cerrar el modal
-  ZoomIn, // Icono para indicar zoom
-  ZoomOut
+  X,
+  ZoomIn,
+  ZoomOut,
+  Save,
+  CheckCircle2,
+  Trash2
 } from 'lucide-react'
 import Link from 'next/link'
 import * as XLSX from 'xlsx'
@@ -44,6 +47,11 @@ export default function AdminAlternativoPage() {
   const [campaign, setCampaign] = useState<any>(null)
   const [activeGiveaway, setActiveGiveaway] = useState(GIVEAWAY_SCHEDULE[0])
   const [registrations, setRegistrations] = useState<any[]>([])
+  
+  // --- NUEVOS ESTADOS PARA GANADORES GUARDADOS ---
+  const [savedWinners, setSavedWinners] = useState<any[]>([])
+  const [savingWinner, setSavingWinner] = useState(false)
+  
   const [loading, setLoading] = useState(true)
   const [winner, setWinner] = useState<any>(null)
   
@@ -96,6 +104,7 @@ export default function AdminAlternativoPage() {
     if (campaign?.id && isAuthenticated) {
       setSearchTerm('')
       fetchRegistrations(campaign.id)
+      fetchSavedWinners(campaign.id)
     }
   }, [campaign, activeGiveaway, isAuthenticated])
 
@@ -112,6 +121,35 @@ export default function AdminAlternativoPage() {
     
     if (data) setRegistrations(data)
     setLoading(false)
+  }
+
+  // --- OBTENER GANADORES GUARDADOS DE LA SEMANA ACTUAL ---
+  async function fetchSavedWinners(id: string) {
+    const currentWeekIndex = GIVEAWAY_SCHEDULE.findIndex(g => g.label === activeGiveaway.label) + 1;
+    
+    const { data, error } = await supabase
+      .from('raffle_winners')
+      .select(`
+        id,
+        created_at,
+        registrations (
+          id, full_name, phone, email, dni, voucher_url
+        )
+      `)
+      .eq('campaign_id', id)
+      .eq('week_number', currentWeekIndex)
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      console.error("Error cargando ganadores guardados:", error)
+    } else if (data) {
+      // Aplanamos la estructura para facilitar el renderizado
+      const formattedWinners = data.map(w => ({
+        winner_record_id: w.id,
+        ...w.registrations
+      }))
+      setSavedWinners(formattedWinners)
+    }
   }
 
   const filteredRegistrations = useMemo(() => {
@@ -132,6 +170,64 @@ export default function AdminAlternativoPage() {
     if (currentList.length === 0) return;
     const randomIndex = Math.floor(Math.random() * currentList.length)
     setWinner(currentList[randomIndex])
+  }
+
+  // --- GUARDAR GANADOR OFICIAL ---
+  const saveWinnerOfficial = async () => {
+    if (!winner || !campaign) return;
+    
+    // Calculamos el week_number basado en la pestaña activa
+    const currentWeekIndex = GIVEAWAY_SCHEDULE.findIndex(g => g.label === activeGiveaway.label) + 1;
+    setSavingWinner(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('raffle_winners')
+        .insert({
+          campaign_id: campaign.id,
+          registration_id: winner.id,
+          week_number: currentWeekIndex
+        })
+        .select();
+
+      if (error) {
+        if (error.code === '23505') { // Código de error de restricción UNIQUE (ya existe)
+            alert("Este participante ya ha sido guardado como ganador esta semana.");
+        } else {
+            console.error("Error guardando ganador:", error);
+            alert("Error al guardar ganador. Revisa la consola.");
+        }
+        return;
+      }
+
+      // Si se guardó con éxito, recargamos la lista de ganadores y limpiamos el ganador actual
+      alert("¡Ganador Oficial Guardado Exitosamente!");
+      fetchSavedWinners(campaign.id);
+      setWinner(null);
+
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingWinner(false);
+    }
+  }
+
+  // --- ELIMINAR GANADOR GUARDADO (Por si hay un error) ---
+  const removeSavedWinner = async (winnerRecordId: string) => {
+      if(!confirm("¿Estás seguro de eliminar a este participante de la lista de ganadores oficiales de esta semana?")) return;
+      
+      const { error } = await supabase
+        .from('raffle_winners')
+        .delete()
+        .eq('id', winnerRecordId);
+
+      if (error) {
+          console.error("Error eliminando:", error);
+          alert("Hubo un error al eliminar.");
+      } else {
+          // Recargamos la lista
+          fetchSavedWinners(campaign.id);
+      }
   }
 
   const exportToExcel = () => {
@@ -231,9 +327,8 @@ export default function AdminAlternativoPage() {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 font-sans p-4 md:p-8">
       
-      {/* Estilos locales para el slider minimalista y zoom */}
       <style jsx global>{`
-        .thin-scrollbar::-webkit-scrollbar { height: 3px; }
+        .thin-scrollbar::-webkit-scrollbar { height: 3px; width: 4px; }
         .thin-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .thin-scrollbar::-webkit-scrollbar-thumb { background: #e4e4e7; border-radius: 10px; }
         .dark .thin-scrollbar::-webkit-scrollbar-thumb { background: #3f3f46; }
@@ -306,46 +401,110 @@ export default function AdminAlternativoPage() {
                 <p className="text-5xl font-black tracking-tighter">{registrations.length}</p>
               </div>
 
+              {/* CARD DE SORTEO Y VALIDACIÓN */}
               <div className="lg:col-span-2 bg-zinc-900 dark:bg-white p-8 rounded-[3rem] shadow-2xl flex flex-col md:flex-row items-center gap-8 relative overflow-hidden">
-                <div className="flex-1 space-y-4 z-10 text-center md:text-left">
-                  <h3 className="text-blue-400 dark:text-blue-600 font-black text-sm uppercase tracking-widest flex items-center justify-center md:justify-start gap-2">
-                    <Trophy size={16} /> Ganador de la Semana
-                  </h3>
-                  {winner ? (
-                    <div className="animate-in zoom-in duration-500">
-                      <p className="text-white dark:text-black text-3xl font-black uppercase tracking-tighter leading-none mb-2">{winner.full_name}</p>
-                      <p className="text-zinc-400 dark:text-zinc-500 font-bold text-sm tracking-widest">{winner.phone} </p>
-                    </div>
-                  ) : (
-                    <p className="text-zinc-500 text-lg font-bold italic">¿Quién será el afortunado hoy?</p>
-                  )}
+                <div className="flex-1 space-y-4 z-10 text-center md:text-left flex flex-col justify-between h-full">
+                  <div>
+                      <h3 className="text-blue-400 dark:text-blue-600 font-black text-sm uppercase tracking-widest flex items-center justify-center md:justify-start gap-2">
+                        <Trophy size={16} /> Ganador de la Semana
+                      </h3>
+                      {winner ? (
+                        <div className="animate-in zoom-in duration-500 mt-4">
+                          <p className="text-white dark:text-black text-3xl font-black uppercase tracking-tighter leading-none mb-2">{winner.full_name}</p>
+                          <p className="text-zinc-400 dark:text-zinc-500 font-bold text-sm tracking-widest">{winner.phone} </p>
+                          
+                          {/* BOTÓN PARA GUARDAR OFICIALMENTE */}
+                          <button 
+                            onClick={saveWinnerOfficial}
+                            disabled={savingWinner}
+                            className="mt-6 bg-green-500 text-white px-6 py-3 rounded-full font-black text-xs uppercase tracking-widest hover:bg-green-600 hover:shadow-lg hover:shadow-green-500/20 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 mx-auto md:mx-0 w-full sm:w-auto"
+                          >
+                            {savingWinner ? <Loader2 className="animate-spin" size={16}/> : <Save size={16}/>}
+                            Confirmar y Guardar Ganador
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-zinc-500 text-lg font-bold italic mt-4">¿Quién será el afortunado hoy?</p>
+                      )}
+                  </div>
+
                   <button 
                     onClick={pickRandomWinner}
                     disabled={filteredRegistrations.length === 0}
                     className="mt-4 bg-white dark:bg-black text-black dark:text-white px-8 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-105 transition-all active:scale-95 disabled:opacity-30"
                   >
-                    {winner ? 'Sortear de Nuevo' : 'Realizar Sorteo'}
+                    {winner ? 'Sortear de Nuevo (Descartar)' : 'Realizar Sorteo'}
                   </button>
                 </div>
 
                 {winner && (
-                  <div className="w-full md:w-48 h-48 bg-white/10 dark:bg-black/5 rounded-[2rem] overflow-hidden border border-white/10 dark:border-black/5 z-10">
+                  <div className="w-full md:w-48 h-48 bg-white/10 dark:bg-black/5 rounded-[2rem] overflow-hidden border border-white/10 dark:border-black/5 z-10 relative group">
                     <img src={winner.voucher_url} className="w-full h-full object-cover" alt="Voucher ganador" />
+                    
+                    <button 
+                        onClick={() => {
+                          setSelectedVoucher(winner.voucher_url);
+                          setIsZoomed(false);
+                        }}
+                        className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-all backdrop-blur-sm"
+                    >
+                        <ZoomIn size={24} className="mb-2"/>
+                        <span className="text-[10px] font-black uppercase tracking-widest">Validar Foto</span>
+                    </button>
                   </div>
                 )}
                 <Trophy size={150} className="absolute -bottom-10 -right-10 text-white/5 dark:text-black/5 -rotate-12" />
               </div>
             </div>
 
+            {/* --- LISTA DE GANADORES GUARDADOS (NUEVO BLOQUE) --- */}
+            {savedWinners.length > 0 && (
+                <div className="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/50 rounded-[2.5rem] p-8 mt-6">
+                    <h3 className="font-black uppercase tracking-tighter text-xl text-amber-900 dark:text-amber-100 mb-6 flex items-center gap-2">
+                        <CheckCircle2 className="text-green-500" />
+                        Ganadores Confirmados ({activeGiveaway.label})
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {savedWinners.map((w, idx) => (
+                            <div key={w.winner_record_id} className="bg-white dark:bg-zinc-900 p-5 rounded-[1.5rem] shadow-sm border border-amber-100 dark:border-amber-800/50 flex flex-col justify-between group">
+                                <div className="flex items-start justify-between mb-4">
+                                    <div>
+                                        <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-1">Ganador #{idx + 1}</p>
+                                        <p className="font-black text-sm uppercase tracking-tight text-zinc-900 dark:text-zinc-100">{w.full_name}</p>
+                                        <p className="text-xs text-zinc-500 font-bold mt-1">{w.phone}</p>
+                                    </div>
+                                    <button 
+                                      onClick={() => removeSavedWinner(w.winner_record_id)}
+                                      className="text-zinc-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      title="Descartar Ganador Oficial"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                                <button 
+                                    onClick={() => {
+                                        setSelectedVoucher(w.voucher_url);
+                                        setIsZoomed(false);
+                                    }}
+                                    className="w-full text-[10px] font-black uppercase tracking-widest text-zinc-400 bg-zinc-50 dark:bg-black py-2 rounded-xl border border-zinc-100 dark:border-zinc-800 hover:text-zinc-700 dark:hover:text-zinc-300 transition-colors"
+                                >
+                                    Ver Voucher Guardado
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* --- DISCLAIMER --- */}
-            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-3xl p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 text-amber-800 dark:text-amber-200">
-              <div className="bg-amber-100 dark:bg-amber-900/50 p-3 rounded-2xl shrink-0">
-                <AlertCircle size={24} className="text-amber-600 dark:text-amber-400" />
+            <div className="bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800/50 rounded-3xl p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4 text-blue-800 dark:text-blue-200 mt-6">
+              <div className="bg-blue-100 dark:bg-blue-900/50 p-3 rounded-2xl shrink-0">
+                <AlertCircle size={24} className="text-blue-600 dark:text-blue-400" />
               </div>
               <div>
-                <h4 className="font-black uppercase tracking-widest text-[11px] opacity-80 mb-1">Pasos para validación</h4>
+                <h4 className="font-black uppercase tracking-widest text-[11px] opacity-80 mb-1">Flujo de Seguridad</h4>
                 <p className="text-sm font-bold">
-                  Usar el buscador de participante. Verificar cantidad de registros y foto voucher para validar la participación del ganador.
+                  Haz clic en "Realizar Sorteo". Valida la foto del voucher del candidato. Si es correcto, haz clic en <span className="font-black bg-green-500/20 px-1 rounded">Confirmar y Guardar Ganador</span>. Si es inválido, vuelve a sortear.
                 </p>
               </div>
             </div>
@@ -378,10 +537,10 @@ export default function AdminAlternativoPage() {
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 bg-zinc-50/50 dark:bg-zinc-800/50">
+              <div className="overflow-x-auto thin-scrollbar max-h-[500px]">
+                <table className="w-full text-left border-collapse relative">
+                  <thead className="sticky top-0 bg-zinc-50/90 dark:bg-black/90 backdrop-blur-sm text-[10px] font-black uppercase tracking-widest text-zinc-400 z-10 shadow-sm">
+                    <tr>
                       <th className="px-8 py-4">Participante</th>
                       <th className="px-8 py-4">Contacto</th>
                       <th className="px-8 py-4">Fecha</th>
@@ -417,12 +576,11 @@ export default function AdminAlternativoPage() {
                           <td className="px-8 py-5 text-xs font-bold text-zinc-400">
                             {new Date(reg.created_at).toLocaleDateString('es-PE')}
                           </td>
-                          {/* --- THUMBNAIL EN VEZ DEL BOTÓN 'VER' --- */}
                           <td className="px-8 py-3">
                             <button 
                               onClick={() => {
                                 setSelectedVoucher(reg.voucher_url);
-                                setIsZoomed(false); // Resetear el zoom al abrir uno nuevo
+                                setIsZoomed(false); 
                               }}
                               className="relative w-14 h-14 rounded-xl overflow-hidden border border-zinc-200 dark:border-zinc-700 shadow-sm hover:ring-2 hover:ring-blue-500 transition-all group/thumb"
                             >
@@ -458,12 +616,10 @@ export default function AdminAlternativoPage() {
         <div 
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 overflow-hidden"
           onClick={() => {
-            // Cerrar al dar clic en el fondo
             setSelectedVoucher(null);
             setIsZoomed(false);
           }}
         >
-          {/* Botón de cerrar */}
           <button 
             onClick={(e) => {
               e.stopPropagation();
@@ -475,20 +631,18 @@ export default function AdminAlternativoPage() {
             <X size={24} />
           </button>
 
-          {/* Indicador superior de zoom */}
           <div className="absolute top-6 left-6 md:top-8 md:left-8 flex items-center gap-2 text-white/50 text-[10px] font-black tracking-widest uppercase z-[110] pointer-events-none">
             {isZoomed ? <ZoomOut size={16} /> : <ZoomIn size={16} />}
             <span className="hidden sm:inline">Clic en la imagen para {isZoomed ? 'alejar' : 'acercar'}</span>
           </div>
 
-          {/* Contenedor de la Imagen con lógica de Zoom */}
           <div 
             className={`relative transition-transform duration-300 ease-out cursor-pointer ${
               isZoomed ? 'scale-150 md:scale-[2]' : 'scale-100 max-w-full max-h-full'
             }`}
             onClick={(e) => {
-              e.stopPropagation(); // Evita que se cierre el modal
-              setIsZoomed(!isZoomed); // Alterna el zoom
+              e.stopPropagation(); 
+              setIsZoomed(!isZoomed); 
             }}
           >
             <img 
